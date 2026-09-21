@@ -75,7 +75,7 @@ jobs:
           JOB_SOURCE_DOMAINS: ""
 
         run: |
-          python api/index.py
+          python -c "from api.index import run_agent; print(run_agent())"
 
       - name: Stop temporary SearXNG
         if: always()
