@@ -1,1 +1,84 @@
+name: Autonomous Job Search Agent
 
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0,4,8,12,16,20 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-job-search
+  cancel-in-progress: false
+
+jobs:
+  job-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start temporary SearXNG
+        run: |
+          docker run -d \
+            --name searxng \
+            -p 8080:8080 \
+            searxng/searxng:latest
+
+          echo "Waiting for SearXNG..."
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then
+              echo "SearXNG is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run job search agent
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+
+          SEARXNG_URL: http://127.0.0.1:8080
+
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DOC_ID: ${{ secrets.GOOGLE_DOC_ID }}
+
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+          LOOKBACK_DAYS: "15"
+          SCAN_INTERVAL_HOURS: "4"
+          MAX_RESULTS_PER_QUERY: "8"
+          MAX_PAGE_FETCHES_PER_RUN: "18"
+          MAX_TELEGRAM_ALERTS: "10"
+
+          MAX_TAVILY_SEARCHES_PER_DAY: "20"
+          MAX_EXA_SEARCHES_PER_DAY: "10"
+          SEARXNG_MAX_QUERIES_PER_RUN: "6"
+
+          USE_FIRECRAWL: "0"
+          JOB_SOURCE_DOMAINS: ""
+
+        run: |
+          python api/index.py
+
+      - name: Stop temporary SearXNG
+        if: always()
+        run: |
+          docker stop searxng || true
+          docker rm searxng || true
